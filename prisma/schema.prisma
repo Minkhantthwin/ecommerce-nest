@@ -1,0 +1,342 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER MANAGEMENT ====================
+
+model Role {
+  roleId Int    @id @default(autoincrement())
+  name   String @unique
+
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  userId    Int      @id @default(autoincrement())
+  userGuid  String   @unique @default(uuid())
+  roleId    Int
+  email     String   @unique
+  name      String?
+  password  String
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  role              Role                @relation(fields: [roleId], references: [roleId])
+  cart              Cart?
+  orders            Order[]
+  reviews           Review[]
+  shippingAddresses ShippingAddress[]
+  wishlist          Wishlist[]
+  payments          Payment[]
+
+  @@map("users")
+}
+
+// ==================== PRODUCT CATALOG ====================
+
+model Category {
+  categoryId  Int       @id @default(autoincrement())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  parentId    Int?
+  imageUrl    String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [categoryId])
+  children Category[] @relation("CategoryHierarchy")
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  productId   Int      @id @default(autoincrement())
+  categoryId  Int
+  name        String
+  slug        String   @unique
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  discount    Decimal? @db.Decimal(5, 2) // Percentage discount
+  stock       Int      @default(0)
+  sku         String   @unique
+  brand       String?
+  isActive    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category      Category        @relation(fields: [categoryId], references: [categoryId])
+  images        ProductImage[]
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  reviews       Review[]
+  wishlistItems Wishlist[]
+
+  @@index([categoryId])
+  @@index([slug])
+  @@map("products")
+}
+
+model ProductImage {
+  imageId    Int      @id @default(autoincrement())
+  productId  Int
+  imageUrl   String
+  altText    String?
+  isPrimary  Boolean  @default(false)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// ==================== SHOPPING CART ====================
+
+model Cart {
+  cartId    Int      @id @default(autoincrement())
+  userId    Int      @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User       @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  items CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  cartItemId Int      @id @default(autoincrement())
+  cartId     Int
+  productId  Int
+  quantity   Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  cart    Cart    @relation(fields: [cartId], references: [cartId], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [productId])
+
+  @@unique([cartId, productId])
+  @@index([cartId])
+  @@index([productId])
+  @@map("cart_items")
+}
+
+// ==================== WISHLIST ====================
+
+model Wishlist {
+  wishlistId Int      @id @default(autoincrement())
+  userId     Int
+  productId  Int
+  createdAt  DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [productId])
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("wishlists")
+}
+
+// ==================== ORDERS & PAYMENTS ====================
+
+model Order {
+  orderId           Int         @id @default(autoincrement())
+  orderNumber       String      @unique
+  userId            Int
+  shippingAddressId Int
+  totalAmount       Decimal     @db.Decimal(10, 2)
+  subtotal          Decimal     @db.Decimal(10, 2)
+  tax               Decimal     @db.Decimal(10, 2)
+  shippingCost      Decimal     @db.Decimal(10, 2)
+  discount          Decimal?    @db.Decimal(10, 2)
+  status            OrderStatus @default(PENDING)
+  notes             String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  user            User             @relation(fields: [userId], references: [userId])
+  shippingAddress ShippingAddress  @relation(fields: [shippingAddressId], references: [addressId])
+  items           OrderItem[]
+  payments        Payment[]
+  shipment        Shipment?
+  orderTracking   OrderTracking[]
+
+  @@index([userId])
+  @@index([orderNumber])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  orderItemId Int     @id @default(autoincrement())
+  orderId     Int
+  productId   Int
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  totalPrice  Decimal @db.Decimal(10, 2)
+  discount    Decimal? @db.Decimal(10, 2)
+
+  order   Order   @relation(fields: [orderId], references: [orderId], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [productId])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Payment {
+  paymentId     Int           @id @default(autoincrement())
+  orderId       Int
+  userId        Int
+  amount        Decimal       @db.Decimal(10, 2)
+  paymentMethod PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  transactionId String?       @unique
+  paymentDate   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [orderId])
+  user  User  @relation(fields: [userId], references: [userId])
+
+  @@index([orderId])
+  @@index([transactionId])
+  @@map("payments")
+}
+
+// ==================== SHIPPING & DELIVERY ====================
+
+model ShippingAddress {
+  addressId   Int      @id @default(autoincrement())
+  userId      Int
+  fullName    String
+  phone       String
+  addressLine1 String
+  addressLine2 String?
+  city        String
+  state       String
+  postalCode  String
+  country     String   @default("USA")
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  orders Order[]
+
+  @@index([userId])
+  @@map("shipping_addresses")
+}
+
+model Shipment {
+  shipmentId     Int            @id @default(autoincrement())
+  orderId        Int            @unique
+  trackingNumber String?        @unique
+  carrier        String?
+  status         ShipmentStatus @default(PENDING)
+  shippedAt      DateTime?
+  estimatedDelivery DateTime?
+  deliveredAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  order Order @relation(fields: [orderId], references: [orderId])
+
+  @@index([trackingNumber])
+  @@map("shipments")
+}
+
+model OrderTracking {
+  trackingId  Int      @id @default(autoincrement())
+  orderId     Int
+  status      String
+  description String?
+  location    String?
+  createdAt   DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [orderId], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_tracking")
+}
+
+// ==================== REVIEWS ====================
+
+model Review {
+  reviewId  Int      @id @default(autoincrement())
+  productId Int
+  userId    Int
+  rating    Int      // 1-5 stars
+  title     String?
+  comment   String?
+  isVerified Boolean @default(false) // Verified purchase
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [productId], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [userId])
+
+  @@unique([productId, userId]) // One review per product per user
+  @@index([productId])
+  @@map("reviews")
+}
+
+// ==================== ENUMS ====================
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CREDIT_CARD
+  DEBIT_CARD
+  PAYPAL
+  STRIPE
+  BANK_TRANSFER
+  CASH_ON_DELIVERY
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum ShipmentStatus {
+  PENDING
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNED
+}
